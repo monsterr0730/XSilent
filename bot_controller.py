@@ -22,7 +22,7 @@ OWNER_PASSWORD = f"{PANEL_NAME}@2024"
 SITE_URL = os.getenv("SITE_URL", f"https://{PANEL_NAME.lower()}.up.railway.app")
 
 # Attack settings
-DEFAULT_DURATION = 300  # 5 minutes (300 seconds)
+DEFAULT_DURATION = 300
 MAX_DURATION = 300
 
 # MongoDB
@@ -56,7 +56,7 @@ for attempt in range(3):
         print(f"✅ MongoDB connected")
         break
     except Exception as e:
-        print(f"⚠️ MongoDB attempt {attempt + 1} failed")
+        print(f"⚠️ MongoDB attempt {attempt + 1} failed: {e}")
         mongo_connected = False
         time.sleep(2)
 
@@ -67,7 +67,7 @@ def get_user():
     if 'user_id' in session:
         if session.get('is_owner'):
             return {"username": OWNER_USERNAME, "is_owner": True, "plan": "vip", "_id": "owner"}
-        if mongo_connected and users_col:
+        if mongo_connected and users_col is not None:
             try:
                 return users_col.find_one({"_id": ObjectId(session['user_id'])})
             except:
@@ -77,7 +77,7 @@ def get_user():
 def attack_monitor():
     while True:
         try:
-            if mongo_connected and attacks_col:
+            if mongo_connected and attacks_col is not None:
                 pending = list(attacks_col.find({"status": "pending"}).limit(5))
                 for attack in pending:
                     duration = attack.get('duration', DEFAULT_DURATION)
@@ -85,7 +85,7 @@ def attack_monitor():
                     
                     def complete_attack(aid, dur):
                         time.sleep(dur)
-                        if mongo_connected and attacks_col:
+                        if mongo_connected and attacks_col is not None:
                             attacks_col.update_one({"_id": aid}, {"$set": {"status": "completed"}})
                     
                     threading.Thread(target=complete_attack, args=(attack["_id"], duration), daemon=True).start()
@@ -95,7 +95,7 @@ def attack_monitor():
             time.sleep(5)
 
 # ========================================
-# 🟢 USER PANEL - Sirf user apna history dekhega
+# 🟢 USER PANEL
 # ========================================
 
 @app.route('/')
@@ -157,7 +157,7 @@ def login():
             session['is_owner'] = True
             return '<script>alert("Welcome Owner!"); window.location.href="/owner-panel";</script>'
         
-        if mongo_connected and users_col:
+        if mongo_connected and users_col is not None:
             try:
                 user = users_col.find_one({"username": username})
                 if user and user.get('password') == hash_password(password):
@@ -214,7 +214,7 @@ def register():
         if len(password) < 6:
             return '<script>alert("Password must be 6+ characters!"); window.location.href="/register";</script>'
         
-        if not mongo_connected or not users_col:
+        if not mongo_connected or users_col is None:
             return '<script>alert("Database error! Try again."); window.location.href="/register";</script>'
         
         try:
@@ -269,10 +269,6 @@ def register():
     </html>
     """
 
-# ========================================
-# 🟢 USER DASHBOARD - Sirf apna history
-# ========================================
-
 @app.route('/dashboard')
 def dashboard():
     user = get_user()
@@ -283,16 +279,14 @@ def dashboard():
     plan = PLANS.get(plan_name, PLANS['free'])
     today = datetime.now().strftime('%Y-%m-%d')
     
-    # User ki apni attacks count
-    if mongo_connected and attacks_col:
+    if mongo_connected and attacks_col is not None:
         today_attacks = attacks_col.count_documents({"user_id": user['_id'], "date": today})
         total_attacks = attacks_col.count_documents({"user_id": user['_id']})
     else:
         today_attacks = total_attacks = 0
     
-    # User ka apna history
     recent_html = ""
-    if mongo_connected and attacks_col:
+    if mongo_connected and attacks_col is not None:
         recent = list(attacks_col.find({"user_id": user['_id']}).sort("created_at", -1).limit(10))
         for a in recent:
             recent_html += f"""
@@ -407,7 +401,7 @@ def history():
         return redirect('/login')
     
     attacks_html = ""
-    if mongo_connected and attacks_col:
+    if mongo_connected and attacks_col is not None:
         attacks = list(attacks_col.find({"user_id": user['_id']}).sort("created_at", -1).limit(50))
         for a in attacks:
             attacks_html += f"""
@@ -425,34 +419,49 @@ def history():
     <!DOCTYPE html>
     <html>
     <head>
-        <title>My History - {SITE_NAME}</title>
+        <title>Attack History - {SITE_NAME}</title>
         <style>
-            body {{ font-family: Arial; background: #0a0a0f; color: white; padding: 20px; }}
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ font-family: Arial; background: #0a0a0f; color: white; }}
             .sidebar {{ position: fixed; left: 0; top: 0; width: 220px; height: 100%; background: rgba(10,10,15,0.95); padding: 30px 20px; }}
             .logo {{ font-size: 20px; font-weight: bold; color: #a855f7; margin-bottom: 40px; text-align: center; }}
             .nav-item {{ display: block; padding: 10px 15px; margin: 5px 0; border-radius: 10px; color: white; text-decoration: none; }}
             .nav-item:hover {{ background: rgba(168,85,247,0.2); color: #a855f7; }}
             .main {{ margin-left: 220px; padding: 30px; }}
-            table {{ width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.05); border-radius: 10px; overflow: hidden; }}
-            th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }}
-            th {{ background: rgba(168,85,247,0.2); }}
-            .btn {{ background: #a855f7; padding: 10px 20px; color: white; text-decoration: none; border-radius: 8px; display: inline-block; margin-bottom: 20px; }}
+            .history-card {{ background: rgba(255,255,255,0.05); border-radius: 20px; padding: 30px; }}
+            table {{ width: 100%; border-collapse: collapse; }}
+            th, td {{ text-align: left; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); }}
+            @media (max-width: 768px) {{ .sidebar {{ display: none; }} .main {{ margin-left: 0; }} }}
         </style>
     </head>
     <body>
         <div class="sidebar">
             <div class="logo">🔥 {SITE_NAME}</div>
-            <a href="/dashboard" class="nav-item">Dashboard</a>
-            <a href="/history" class="nav-item active">My History</a>
-            <a href="/logout" class="nav-item">Logout</a>
+            <a href="/dashboard" class="nav-item">📊 Dashboard</a>
+            <a href="/history" class="nav-item active">📜 My History</a>
+            <a href="/pricing" class="nav-item">💎 Upgrade</a>
+            <a href="/logout" class="nav-item">🚪 Logout</a>
         </div>
+        
         <div class="main">
-            <a href="/dashboard" class="btn">← Back</a>
-            <h2>My Attack History (Last 50)</h2>
-            <table>
-                <thead><tr><th>Target</th><th>Port</th><th>Method</th><th>Duration</th><th>Status</th><th>Date</th></tr></thead>
-                <tbody>{attacks_html if attacks_html else '<tr><td colspan="6" style="text-align:center">No attacks yet</td></tr>'}</tbody>
-            </table>
+            <div class="history-card">
+                <h2>My Attack History</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Target</th>
+                            <th>Port</th>
+                            <th>Method</th>
+                            <th>Duration</th>
+                            <th>Status</th>
+                            <th>Date/Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {attacks_html if attacks_html else '<tr><td colspan="6" style="text-align:center">No attacks yet</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </body>
     </html>
@@ -461,92 +470,85 @@ def history():
 @app.route('/launch-attack', methods=['POST'])
 def launch_attack():
     user = get_user()
-    if not user or user.get('is_owner'):
-        return jsonify({"success": False, "error": "Please login"})
+    if not user:
+        return jsonify({"success": False, "error": "Login required"})
     
-    plan_name = user.get('plan', 'free')
-    plan = PLANS.get(plan_name, PLANS['free'])
+    if user.get('is_owner'):
+        return jsonify({"success": False, "error": "Owner cannot launch attacks"})
     
     target = request.form.get('target')
     port = request.form.get('port')
     method = request.form.get('method')
-    duration = request.form.get('duration')
+    duration = int(request.form.get('duration', DEFAULT_DURATION))
     
-    if not all([target, port, method, duration]):
-        return jsonify({"success": False, "error": "All fields required"})
+    if not target or not port:
+        return jsonify({"success": False, "error": "Target and port required"})
     
-    try:
-        duration = int(duration)
-        if duration < 10:
-            return jsonify({"success": False, "error": "Minimum 10 seconds"})
-        if duration > 300:
-            return jsonify({"success": False, "error": "Maximum 300 seconds"})
-        if duration > plan['max_duration']:
-            return jsonify({"success": False, "error": f"Your plan max {plan['max_duration']} seconds"})
-    except:
-        return jsonify({"success": False, "error": "Invalid duration"})
+    if duration > MAX_DURATION:
+        duration = MAX_DURATION
     
-    try:
-        port = int(port)
-        if port < 1 or port > 65535:
-            return jsonify({"success": False, "error": "Invalid port"})
-    except:
-        return jsonify({"success": False, "error": "Invalid port"})
+    plan_name = user.get('plan', 'free')
+    plan = PLANS.get(plan_name, PLANS['free'])
     
-    # Check daily limit
     today = datetime.now().strftime('%Y-%m-%d')
-    if mongo_connected and attacks_col:
+    if mongo_connected and attacks_col is not None:
         today_count = attacks_col.count_documents({"user_id": user['_id'], "date": today})
         if today_count >= plan['daily_limit']:
-            return jsonify({"success": False, "error": f"Daily limit reached! Max {plan['daily_limit']} attacks"})
+            return jsonify({"success": False, "error": f"Daily limit ({plan['daily_limit']}) reached"})
     
-    if mongo_connected and attacks_col:
-        attack_data = {
-            "user_id": user['_id'],
-            "username": user['username'],
-            "target": target,
-            "port": port,
-            "method": method,
-            "duration": duration,
-            "status": "pending",
-            "date": today,
-            "created_at": time.time()
-        }
+    attack_id = str(uuid.uuid4())
+    attack_data = {
+        "attack_id": attack_id,
+        "user_id": user['_id'],
+        "username": user['username'],
+        "target": target,
+        "port": int(port),
+        "method": method,
+        "duration": duration,
+        "status": "pending",
+        "date": today,
+        "created_at": time.time()
+    }
+    
+    if mongo_connected and attacks_col is not None:
         attacks_col.insert_one(attack_data)
-        
-        # Update user attack count
-        users_col.update_one({"_id": user['_id']}, {"$inc": {"total_attacks": 1}})
+        if users_col is not None:
+            users_col.update_one({"_id": user['_id']}, {"$inc": {"total_attacks": 1}})
     
-    return jsonify({"success": True})
+    print(f"\n🔥 ATTACK LAUNCHED!")
+    print(f"👤 User: {user['username']}")
+    print(f"🎯 Target: {target}:{port}")
+    print(f"⚙️ Method: {method}")
+    print(f"⏱️ Duration: {duration} seconds")
+    
+    return jsonify({"success": True, "message": f"Attack launched for {duration} seconds"})
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect('/')
 
 @app.route('/pricing')
 def pricing():
     user = get_user()
-    plans_html = ""
-    for key, plan in PLANS.items():
-        price = 0 if key == 'free' else 10 if key == 'basic' else 25 if key == 'premium' else 50
-        plans_html += f"""
-        <div style="background: rgba(255,255,255,0.05); padding: 25px; margin: 15px; display: inline-block; width: 200px; border-radius: 15px; text-align: center;">
-            <h3>{plan['name']}</h3>
-            <p style="font-size: 28px; color: #a855f7;">${price}</p>
-            <p>/month</p>
-            <p>✅ {plan['daily_limit']} attacks/day</p>
-            <p>✅ {plan['max_duration']}s max</p>
-        </div>
-        """
-    
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
         <title>Pricing - {SITE_NAME}</title>
         <style>
-            body {{ font-family: Arial; background: linear-gradient(135deg, #0a0a0f, #1a1a2e); color: white; text-align: center; padding: 50px; }}
-            .navbar {{ background: rgba(10,10,15,0.95); padding: 15px 40px; display: flex; justify-content: space-between; align-items: center; position: fixed; top: 0; left: 0; right: 0; }}
-            .logo {{ font-size: 24px; font-weight: bold; color: #a855f7; }}
-            .nav-links a {{ color: white; text-decoration: none; margin-left: 20px; }}
-            .container {{ margin-top: 100px; }}
-            .plans {{ display: flex; justify-content: center; flex-wrap: wrap; }}
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ font-family: Arial; background: linear-gradient(135deg, #0a0a0f, #1a1a2e); color: white; }}
+            .navbar {{ background: rgba(10,10,15,0.95); padding: 15px 40px; display: flex; justify-content: space-between; align-items: center; }}
+            .logo {{ font-size: 24px; font-weight: bold; background: linear-gradient(135deg, #a855f7, #7c3aed); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }}
+            .nav-links a {{ color: white; text-decoration: none; margin-left: 25px; }}
+            .pricing-container {{ display: flex; justify-content: center; gap: 30px; padding: 60px; flex-wrap: wrap; }}
+            .plan {{ background: rgba(255,255,255,0.05); border-radius: 20px; padding: 40px; width: 280px; text-align: center; }}
+            .plan h3 {{ font-size: 28px; margin-bottom: 20px; }}
+            .price {{ font-size: 36px; color: #a855f7; margin: 20px 0; }}
+            .features {{ list-style: none; margin: 20px 0; }}
+            .features li {{ padding: 8px 0; }}
+            footer {{ text-align: center; padding: 30px; background: rgba(0,0,0,0.5); }}
         </style>
     </head>
     <body>
@@ -558,18 +560,54 @@ def pricing():
                 {f'<a href="/dashboard">Dashboard</a><a href="/logout">Logout</a>' if user else '<a href="/login">Login</a><a href="/register">Register</a>'}
             </div>
         </div>
-        <div class="container">
-            <h1>Choose Your Plan</h1>
-            <p>All plans: 300 seconds max attack duration</p>
-            <div class="plans">{plans_html}</div>
+        
+        <div class="pricing-container">
+            <div class="plan">
+                <h3>FREE</h3>
+                <div class="price">$0</div>
+                <ul class="features">
+                    <li>10 Attacks/Day</li>
+                    <li>300 Seconds Max</li>
+                    <li>Basic Methods</li>
+                    <li>7 Days Trial</li>
+                </ul>
+            </div>
+            <div class="plan">
+                <h3>BASIC</h3>
+                <div class="price">$49</div>
+                <ul class="features">
+                    <li>50 Attacks/Day</li>
+                    <li>300 Seconds Max</li>
+                    <li>All Methods</li>
+                    <li>30 Days Validity</li>
+                </ul>
+            </div>
+            <div class="plan">
+                <h3>PREMIUM</h3>
+                <div class="price">$99</div>
+                <ul class="features">
+                    <li>200 Attacks/Day</li>
+                    <li>300 Seconds Max</li>
+                    <li>All Methods</li>
+                    <li>60 Days Validity</li>
+                </ul>
+            </div>
+            <div class="plan">
+                <h3>VIP</h3>
+                <div class="price">$199</div>
+                <ul class="features">
+                    <li>Unlimited Attacks</li>
+                    <li>300 Seconds Max</li>
+                    <li>Priority Support</li>
+                    <li>90 Days Validity</li>
+                </ul>
+            </div>
         </div>
+        
+        <footer><p>&copy; 2024 {SITE_NAME} | Contact: @{PANEL_NAME.lower()}_support</p></footer>
     </body>
     </html>
     """
-
-# ========================================
-# 🔴 OWNER PANEL - Sab kuch dikhega (Alag System)
-# ========================================
 
 @app.route('/owner-panel')
 def owner_panel():
@@ -577,53 +615,24 @@ def owner_panel():
     if not user or not user.get('is_owner'):
         return redirect('/login')
     
-    # Owner ko sab stats dikhenge
-    if mongo_connected and attacks_col:
-        total_users = users_col.count_documents({}) if users_col else 0
+    total_users = 0
+    total_attacks = 0
+    if mongo_connected and users_col is not None:
+        total_users = users_col.count_documents({})
+    if mongo_connected and attacks_col is not None:
         total_attacks = attacks_col.count_documents({})
-        today_attacks = attacks_col.count_documents({"date": datetime.now().strftime('%Y-%m-%d')})
-        running_attacks = attacks_col.count_documents({"status": "running"})
-    else:
-        total_users = total_attacks = today_attacks = running_attacks = 0
     
-    # All users list
     users_html = ""
-    if mongo_connected and users_col:
-        all_users = list(users_col.find().sort("created_at", -1))
-        for u in all_users:
-            days_left = max(0, int((u.get('expiry', 0) - time.time())/86400))
+    if mongo_connected and users_col is not None:
+        users = list(users_col.find().sort("created_at", -1).limit(20))
+        for u in users:
             users_html += f"""
             <tr>
                 <td>{u.get('username', 'N/A')}</td>
                 <td>{u.get('email', 'N/A')}</td>
-                <td>{u.get('plan', 'free').upper()}</td>
-                <td>{days_left} days</td>
+                <td>{u.get('plan', 'free')}</td>
                 <td>{u.get('total_attacks', 0)}</td>
-                <td>
-                    <select id="plan_{u['_id']}" onchange="upgradeUser('{u['_id']}', this.value)">
-                        <option value="free" {'selected' if u.get('plan')=='free' else ''}>FREE</option>
-                        <option value="basic" {'selected' if u.get('plan')=='basic' else ''}>BASIC</option>
-                        <option value="premium" {'selected' if u.get('plan')=='premium' else ''}>PREMIUM</option>
-                        <option value="vip" {'selected' if u.get('plan')=='vip' else ''}>VIP</option>
-                    </select>
-                </td>
-            </tr>
-            """
-    
-    # All attacks history
-    attacks_html = ""
-    if mongo_connected and attacks_col:
-        all_attacks = list(attacks_col.find().sort("created_at", -1).limit(30))
-        for a in all_attacks:
-            attacks_html += f"""
-            <tr>
-                <td>{a.get('username', 'N/A')}</td>
-                <td>{a.get('target', 'N/A')}</td>
-                <td>{a.get('port', 'N/A')}</td>
-                <td>{a.get('method', 'N/A')}</td>
-                <td>{a.get('duration', 'N/A')}s</td>
-                <td>{a.get('status', 'N/A')}</td>
-                <td>{datetime.fromtimestamp(a.get('created_at', time.time())).strftime('%Y-%m-%d %H:%M:%S') if a.get('created_at') else 'N/A'}</td>
+                <td>{datetime.fromtimestamp(u.get('created_at', time.time())).strftime('%Y-%m-%d') if u.get('created_at') else 'N/A'}</td>
             </tr>
             """
     
@@ -635,226 +644,49 @@ def owner_panel():
         <style>
             * {{ margin: 0; padding: 0; box-sizing: border-box; }}
             body {{ font-family: Arial; background: #0a0a0f; color: white; }}
-            .sidebar {{ position: fixed; left: 0; top: 0; width: 260px; height: 100%; background: rgba(10,10,15,0.95); border-right: 1px solid rgba(255,255,255,0.1); padding: 30px 20px; overflow-y: auto; }}
+            .sidebar {{ position: fixed; left: 0; top: 0; width: 220px; height: 100%; background: rgba(10,10,15,0.95); padding: 30px 20px; }}
             .logo {{ font-size: 20px; font-weight: bold; color: #a855f7; margin-bottom: 40px; text-align: center; }}
             .nav-item {{ display: block; padding: 10px 15px; margin: 5px 0; border-radius: 10px; color: white; text-decoration: none; }}
-            .nav-item:hover, .nav-item.active {{ background: rgba(168,85,247,0.2); color: #a855f7; }}
-            .main {{ margin-left: 260px; padding: 30px; }}
-            .stats {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px; }}
+            .nav-item:hover {{ background: rgba(168,85,247,0.2); color: #a855f7; }}
+            .main {{ margin-left: 220px; padding: 30px; }}
+            .stats {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 30px; }}
             .stat-card {{ background: rgba(255,255,255,0.05); border-radius: 15px; padding: 20px; text-align: center; }}
             .stat-number {{ font-size: 32px; font-weight: bold; color: #a855f7; }}
-            table {{ width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.05); border-radius: 10px; overflow: hidden; margin-top: 20px; }}
-            th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }}
-            th {{ background: rgba(168,85,247,0.2); }}
-            select {{ background: rgba(255,255,255,0.1); color: white; padding: 5px 10px; border-radius: 5px; border: 1px solid #a855f7; cursor: pointer; }}
-            .section {{ margin-bottom: 40px; }}
-            h2 {{ color: #a855f7; margin-bottom: 20px; }}
-            .success {{ background: #10b981; padding: 10px; border-radius: 5px; margin: 10px 0; display: none; position: fixed; top: 20px; right: 20px; z-index: 999; }}
+            .users-card {{ background: rgba(255,255,255,0.05); border-radius: 20px; padding: 30px; }}
+            table {{ width: 100%; border-collapse: collapse; }}
+            th, td {{ text-align: left; padding: 12px; border-bottom: 1px solid rgba(255,255,255,0.1); }}
         </style>
     </head>
     <body>
         <div class="sidebar">
-            <div class="logo">👑 {SITE_NAME} OWNER</div>
-            <a href="/owner-panel" class="nav-item active">📊 Overview</a>
-            <a href="/owner-users" class="nav-item">👥 Users</a>
-            <a href="/owner-attacks" class="nav-item">⚔️ All Attacks</a>
-            <a href="/dashboard" class="nav-item">🟢 User Mode</a>
+            <div class="logo">🔥 {SITE_NAME}</div>
+            <a href="/owner-panel" class="nav-item active">👑 Dashboard</a>
             <a href="/logout" class="nav-item">🚪 Logout</a>
         </div>
         
         <div class="main">
-            <div id="successMsg" class="success"></div>
-            
-            <h1>👑 Owner Control Panel</h1>
-            <p>Welcome, {OWNER_USERNAME} | Total Control Mode</p>
+            <h2>Welcome, Owner!</h2>
             
             <div class="stats">
                 <div class="stat-card"><h3>Total Users</h3><div class="stat-number">{total_users}</div></div>
                 <div class="stat-card"><h3>Total Attacks</h3><div class="stat-number">{total_attacks}</div></div>
-                <div class="stat-card"><h3>Today</h3><div class="stat-number">{today_attacks}</div></div>
-                <div class="stat-card"><h3>Running</h3><div class="stat-number">{running_attacks}</div></div>
             </div>
             
-            <div class="section">
-                <h2>👥 All Users ({total_users})</h2>
+            <div class="users-card">
+                <h3>Recent Users</h3>
                 <table>
-                    <thead><tr><th>Username</th><th>Email</th><th>Plan</th><th>Days Left</th><th>Total Attacks</th><th>Upgrade</th></tr></thead>
-                    <tbody>{users_html if users_html else '<tr><td colspan="6" style="text-align:center">No users yet</td></tr>'}</tbody>
-                </table>
-            </div>
-            
-            <div class="section">
-                <h2>⚔️ Recent Attacks (Last 30)</h2>
-                <table>
-                    <thead><tr><th>User</th><th>Target</th><th>Port</th><th>Method</th><th>Duration</th><th>Status</th><th>Time</th></tr></thead>
-                    <tbody>{attacks_html if attacks_html else '<tr><td colspan="7" style="text-align:center">No attacks yet</td></tr>'}</tbody>
-                </table>
-            </div>
-        </div>
-        
-        <script>
-            async function upgradeUser(userId, plan) {{
-                let res = await fetch('/owner/upgrade-user', {{
-                    method: 'POST',
-                    headers: {{'Content-Type': 'application/json'}},
-                    body: JSON.stringify({{user_id: userId, plan: plan}})
-                }});
-                let data = await res.json();
-                if(data.success) {{
-                    document.getElementById('successMsg').innerHTML = '✅ User upgraded to ' + plan.toUpperCase();
-                    document.getElementById('successMsg').style.display = 'block';
-                    setTimeout(() => location.reload(), 1500);
-                }} else {{
-                    alert('Error: ' + data.error);
-                }}
-            }}
-        </script>
-    </body>
-    </html>
-    """
-
-@app.route('/owner-users')
-def owner_users():
-    user = get_user()
-    if not user or not user.get('is_owner'):
-        return redirect('/login')
-    
-    users_html = ""
-    if mongo_connected and users_col:
-        all_users = list(users_col.find().sort("created_at", -1))
-        for u in all_users:
-            days_left = max(0, int((u.get('expiry', 0) - time.time())/86400))
-            users_html += f"""
-            <tr>
-                <td>{u.get('username', 'N/A')}</td>
-                <td>{u.get('email', 'N/A')}</td>
-                <td>{u.get('plan', 'free').upper()}</td>
-                <td>{days_left} days</td>
-                <td>{u.get('total_attacks', 0)}</td>
-                <td>
-                    <select id="plan_{u['_id']}" onchange="upgradeUser('{u['_id']}', this.value)">
-                        <option value="free" {'selected' if u.get('plan')=='free' else ''}>FREE</option>
-                        <option value="basic" {'selected' if u.get('plan')=='basic' else ''}>BASIC</option>
-                        <option value="premium" {'selected' if u.get('plan')=='premium' else ''}>PREMIUM</option>
-                        <option value="vip" {'selected' if u.get('plan')=='vip' else ''}>VIP</option>
-                    </select>
-                </td>
-            </tr>
-            """
-    
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Users - {SITE_NAME} Owner</title>
-        <style>
-            body {{ font-family: Arial; background: #0a0a0f; color: white; padding: 20px; }}
-            .sidebar {{ position: fixed; left: 0; top: 0; width: 260px; height: 100%; background: rgba(10,10,15,0.95); padding: 30px 20px; }}
-            .logo {{ font-size: 20px; font-weight: bold; color: #a855f7; margin-bottom: 40px; text-align: center; }}
-            .nav-item {{ display: block; padding: 10px 15px; margin: 5px 0; border-radius: 10px; color: white; text-decoration: none; }}
-            .nav-item:hover {{ background: rgba(168,85,247,0.2); color: #a855f7; }}
-            .main {{ margin-left: 260px; padding: 30px; }}
-            table {{ width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.05); border-radius: 10px; overflow: hidden; }}
-            th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }}
-            th {{ background: rgba(168,85,247,0.2); }}
-            select {{ background: rgba(255,255,255,0.1); color: white; padding: 5px 10px; border-radius: 5px; border: 1px solid #a855f7; cursor: pointer; }}
-            .btn {{ background: #a855f7; padding: 10px 20px; color: white; text-decoration: none; border-radius: 8px; display: inline-block; margin-bottom: 20px; }}
-            .success {{ background: #10b981; padding: 10px; border-radius: 5px; margin: 10px 0; display: none; position: fixed; top: 20px; right: 20px; z-index: 999; }}
-        </style>
-    </head>
-    <body>
-        <div class="sidebar">
-            <div class="logo">👑 {SITE_NAME}</div>
-            <a href="/owner-panel" class="nav-item">Overview</a>
-            <a href="/owner-users" class="nav-item active">Users</a>
-            <a href="/owner-attacks" class="nav-item">Attacks</a>
-            <a href="/logout" class="nav-item">Logout</a>
-        </div>
-        <div class="main">
-            <div id="successMsg" class="success"></div>
-            <a href="/owner-panel" class="btn">← Back</a>
-            <h2>All Users</h2>
-            <table>
-                <thead><tr><th>Username</th><th>Email</th><th>Plan</th><th>Days Left</th><th>Attacks</th><th>Upgrade</th></tr></thead>
-                <tbody>{users_html if users_html else '<tr><td colspan="6" style="text-align:center">No users yet</td></tr>'}</tbody>
-            </table>
-        </div>
-        <script>
-            async function upgradeUser(userId, plan) {{
-                let res = await fetch('/owner/upgrade-user', {{
-                    method: 'POST',
-                    headers: {{'Content-Type': 'application/json'}},
-                    body: JSON.stringify({{user_id: userId, plan: plan}})
-                }});
-                let data = await res.json();
-                if(data.success) {{
-                    document.getElementById('successMsg').innerHTML = '✅ User upgraded to ' + plan.toUpperCase();
-                    document.getElementById('successMsg').style.display = 'block';
-                    setTimeout(() => location.reload(), 1500);
-                }} else {{
-                    alert('Error: ' + data.error);
-                }}
-            }}
-        </script>
-    </body>
-    </html>
-    """
-
-@app.route('/owner-attacks')
-def owner_attacks():
-    user = get_user()
-    if not user or not user.get('is_owner'):
-        return redirect('/login')
-    
-    attacks_html = ""
-    if mongo_connected and attacks_col:
-        all_attacks = list(attacks_col.find().sort("created_at", -1).limit(100))
-        for a in all_attacks:
-            attacks_html += f"""
-            <tr>
-                <td>{a.get('username', 'N/A')}</td>
-                <td>{a.get('target', 'N/A')}</td>
-                <td>{a.get('port', 'N/A')}</td>
-                <td>{a.get('method', 'N/A')}</td>
-                <td>{a.get('duration', 'N/A')}s</td>
-                <td>{a.get('status', 'N/A')}</td>
-                <td>{datetime.fromtimestamp(a.get('created_at', time.time())).strftime('%Y-%m-%d %H:%M:%S') if a.get('created_at') else 'N/A'}</td>
-            </tr>
-            """
-    
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>All Attacks - {SITE_NAME} Owner</title>
-        <style>
-            body {{ font-family: Arial; background: #0a0a0f; color: white; padding: 20px; }}
-            .sidebar {{ position: fixed; left: 0; top: 0; width: 260px; height: 100%; background: rgba(10,10,15,0.95); padding: 30px 20px; }}
-            .logo {{ font-size: 20px; font-weight: bold; color: #a855f7; margin-bottom: 40px; text-align: center; }}
-            .nav-item {{ display: block; padding: 10px 15px; margin: 5px 0; border-radius: 10px; color: white; text-decoration: none; }}
-            .nav-item:hover {{ background: rgba(168,85,247,0.2); color: #a855f7; }}
-            .main {{ margin-left: 260px; padding: 30px; }}
-            table {{ width: 100%; border-collapse: collapse; background: rgba(255,255,255,0.05); border-radius: 10px; overflow-x: auto; display: block; }}
-            th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.1); }}
-            th {{ background: rgba(168,85,247,0.2); }}
-            .btn {{ background: #a855f7; padding: 10px 20px; color: white; text-decoration: none; border-radius: 8px; display: inline-block; margin-bottom: 20px; }}
-        </style>
-    </head>
-    <body>
-        <div class="sidebar">
-            <div class="logo">👑 {SITE_NAME}</div>
-            <a href="/owner-panel" class="nav-item">Overview</a>
-            <a href="/owner-users" class="nav-item">Users</a>
-            <a href="/owner-attacks" class="nav-item active">Attacks</a>
-            <a href="/logout" class="nav-item">Logout</a>
-        </div>
-        <div class="main">
-            <a href="/owner-panel" class="btn">← Back</a>
-            <h2>All Attacks (Last 100)</h2>
-            <div style="overflow-x: auto;">
-                <table>
-                    <thead><tr><th>User</th><th>Target</th><th>Port</th><th>Method</th><th>Duration</th><th>Status</th><th>Time</th></tr></thead>
-                    <tbody>{attacks_html if attacks_html else '<tr><td colspan="7" style="text-align:center">No attacks yet</td></tr>'}</tbody>
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Email</th>
+                            <th>Plan</th>
+                            <th>Attacks</th>
+                            <th>Joined</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {users_html if users_html else '<tr><td colspan="5" style="text-align:center">No users yet</td></tr>'}
+                    </tbody>
                 </table>
             </div>
         </div>
@@ -862,42 +694,7 @@ def owner_attacks():
     </html>
     """
 
-@app.route('/owner/upgrade-user', methods=['POST'])
-def owner_upgrade_user():
-    user = get_user()
-    if not user or not user.get('is_owner'):
-        return jsonify({"success": False, "error": "Unauthorized"})
-    
-    data = request.get_json()
-    user_id = data.get('user_id')
-    plan = data.get('plan')
-    
-    if not user_id or not plan or plan not in ['free', 'basic', 'premium', 'vip']:
-        return jsonify({"success": False, "error": "Invalid request"})
-    
-    if mongo_connected and users_col:
-        new_expiry = time.time() + (30 * 86400)
-        result = users_col.update_one(
-            {"_id": ObjectId(user_id)},
-            {"$set": {"plan": plan, "expiry": new_expiry, "upgraded_at": time.time()}}
-        )
-        if result.modified_count > 0:
-            return jsonify({"success": True})
-    
-    return jsonify({"success": False, "error": "Database error"})
-
-@app.route('/logout')
-def logout():
-    session.clear()
-    return '<script>alert("Logged out!"); window.location.href="/";</script>'
-
-@app.route('/health')
-def health():
-    return jsonify({"status": "healthy", "mongo_connected": mongo_connected})
-
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8080))
-    
+if __name__ == '__main__':
     print("=" * 50)
     print(f"🔥 {SITE_NAME} Panel Starting...")
     print("=" * 50)
@@ -905,11 +702,11 @@ if __name__ == "__main__":
     print(f"🔑 Owner Password: {OWNER_PASSWORD}")
     print(f"🌐 URL: {SITE_URL}")
     print(f"⚡ Attack Duration: {DEFAULT_DURATION} seconds")
-    print(f"📊 MongoDB: {'Connected ✅' if mongo_connected else 'Disconnected ❌'}")
+    print(f"📊 MongoDB: {'Connected ✅' if mongo_connected else 'Failed ❌'}")
     print("=" * 50)
     
-    # Start attack monitor
+    # Start attack monitor thread
     monitor_thread = threading.Thread(target=attack_monitor, daemon=True)
     monitor_thread.start()
     
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=8080)
