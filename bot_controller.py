@@ -16,10 +16,10 @@ app.secret_key = "primexarmy_secret_key_2024"
 # ========================================
 PANEL_NAME = "XSILENT"  # 👈 Yahan apna naam dalo
 
-SITE_NAME = XSILENT.upper()
-OWNER_USERNAME = XSILENT.lower()
-OWNER_PASSWORD = f"{TSILENT}@2024"
-SITE_URL = os.getenv("SITE_URL", f"https://{XSILENT.lower()}.up.railway.app")
+SITE_NAME = PANEL_NAME.upper()
+OWNER_USERNAME = PANEL_NAME.lower()
+OWNER_PASSWORD = f"{PANEL_NAME}@2024"
+SITE_URL = os.getenv("SITE_URL", f"https://{PANEL_NAME.lower()}.up.railway.app")
 
 # Attack settings
 DEFAULT_DURATION = 300  # 5 minutes (300 seconds)
